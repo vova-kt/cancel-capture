@@ -9,6 +9,7 @@ from cancel_capture.models import (
     Embedding,
     ImageMetadata,
     IngestionResult,
+    ItemEmbedding,
     PhotoObservation,
     PreparedImage,
     PreparedIngestion,
@@ -17,6 +18,7 @@ from cancel_capture.models import (
     ReviewCandidate,
     ReviewStatus,
     SearchDocument,
+    SignEmbeddingDocument,
     StoredAsset,
     TelegramMessageRef,
 )
@@ -41,6 +43,16 @@ class EmbeddingProvider(Protocol):
     def identity(self) -> ProviderIdentity: ...
 
     async def embed(self, texts: tuple[str, ...]) -> tuple[Embedding, ...]: ...
+
+
+class VisualEmbeddingProvider(Protocol):
+    @property
+    def identity(self) -> ProviderIdentity: ...
+
+    @property
+    def dimensions(self) -> int: ...
+
+    def embed(self, images: tuple[PreparedImage, ...]) -> tuple[Embedding, ...]: ...
 
 
 class AssetStore(Protocol):
@@ -113,3 +125,7 @@ class CatalogRepository(Protocol):
     def list_candidates(
         self, status: ReviewStatus | None = None
     ) -> tuple[ReviewCandidate, ...]: ...
+
+    def list_sign_embedding_documents(self) -> tuple[SignEmbeddingDocument, ...]: ...
+
+    def upsert_visual_embeddings(self, embeddings: tuple[ItemEmbedding, ...]) -> None: ...

@@ -20,6 +20,7 @@ from cancel_capture.models import (
     ImageMetadata,
     IngestedSign,
     IngestionResult,
+    ItemEmbedding,
     ItemKind,
     PreparedIngestion,
     ProviderIdentity,
@@ -27,6 +28,7 @@ from cancel_capture.models import (
     ReviewCandidate,
     ReviewStatus,
     SearchDocument,
+    SignEmbeddingDocument,
     StoredAsset,
     TelegramFile,
     TelegramMessageRef,
@@ -251,6 +253,22 @@ CREATE INDEX embeddings_identity_idx
     ON embeddings(provider, provider_namespace, model, dimensions);
 """
 
+_MIGRATION_7 = """
+CREATE TABLE visual_embeddings (
+    item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_namespace TEXT NOT NULL,
+    model TEXT NOT NULL,
+    dimensions INTEGER NOT NULL CHECK (dimensions > 0),
+    vector BLOB NOT NULL,
+    norm REAL NOT NULL CHECK (norm >= 0),
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX visual_embeddings_identity_idx
+    ON visual_embeddings(provider, provider_namespace, model, dimensions);
+"""
+
 _MIGRATIONS = (
     (1, _MIGRATION_1),
     (2, _MIGRATION_2),
@@ -258,6 +276,7 @@ _MIGRATIONS = (
     (4, _MIGRATION_4),
     (5, _MIGRATION_5),
     (6, _MIGRATION_6),
+    (7, _MIGRATION_7),
 )
 
 
@@ -605,6 +624,88 @@ class SQLiteCatalog:
             else:
                 rows = self._candidate_query(connection, "s.status = ?", (status.value,)).fetchall()
             return tuple(self._candidate_from_row(row) for row in rows)
+
+    def list_sign_embedding_documents(self) -> tuple[SignEmbeddingDocument, ...]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT i.id, i.parent_photo_id, i.status, a.relative_path,
+                       de.text AS description_en, dr.text AS description_ru,
+                       d.topics_en_json, d.topics_ru_json,
+                       se.provider AS semantic_provider,
+                       se.provider_namespace AS semantic_namespace,
+                       se.model AS semantic_model,
+                       se.dimensions AS semantic_dimensions,
+                       se.vector AS semantic_vector,
+                       ve.provider AS visual_provider,
+                       ve.provider_namespace AS visual_namespace,
+                       ve.model AS visual_model,
+                       ve.dimensions AS visual_dimensions,
+                       ve.vector AS visual_vector
+                FROM items i
+                JOIN assets a ON a.id = i.asset_id
+                JOIN descriptions de ON de.item_id = i.id AND de.language = 'en'
+                JOIN descriptions dr ON dr.item_id = i.id AND dr.language = 'ru'
+                JOIN detections d ON d.sign_item_id = i.id
+                JOIN search_documents sd ON sd.item_id = i.id
+                JOIN embeddings se ON se.search_document_id = sd.id
+                LEFT JOIN visual_embeddings ve ON ve.item_id = i.id
+                WHERE i.kind = 'sign'
+                ORDER BY i.id
+                """
+            ).fetchall()
+        documents: list[SignEmbeddingDocument] = []
+        for row in rows:
+            semantic_dimensions = cast(int, row["semantic_dimensions"])
+            semantic_identity = ProviderIdentity(
+                provider=cast(str, row["semantic_provider"]),
+                namespace=cast(str, row["semantic_namespace"]),
+                model=cast(str, row["semantic_model"]),
+            )
+            visual_embedding: Embedding | None = None
+            visual_dimensions = _optional_int(row, "visual_dimensions")
+            visual_vector = cast(object, row["visual_vector"])
+            if visual_dimensions is not None and isinstance(visual_vector, bytes):
+                visual_embedding = Embedding(
+                    identity=ProviderIdentity(
+                        provider=cast(str, row["visual_provider"]),
+                        namespace=cast(str, row["visual_namespace"]),
+                        model=cast(str, row["visual_model"]),
+                    ),
+                    values=_unpack_embedding(visual_vector, visual_dimensions),
+                )
+            documents.append(
+                SignEmbeddingDocument(
+                    item_id=cast(str, row["id"]),
+                    parent_photo_id=cast(str, row["parent_photo_id"]),
+                    text=BilingualText(
+                        en=cast(str, row["description_en"]),
+                        ru=cast(str, row["description_ru"]),
+                    ),
+                    topics_en=_json_tuple(cast(str, row["topics_en_json"])),
+                    topics_ru=_json_tuple(cast(str, row["topics_ru_json"])),
+                    asset_relative_path=cast(str, row["relative_path"]),
+                    status=ReviewStatus(cast(str, row["status"])),
+                    semantic_embedding=Embedding(
+                        identity=semantic_identity,
+                        values=_unpack_embedding(
+                            cast(bytes, row["semantic_vector"]), semantic_dimensions
+                        ),
+                    ),
+                    visual_embedding=visual_embedding,
+                )
+            )
+        return tuple(documents)
+
+    def upsert_visual_embeddings(self, embeddings: tuple[ItemEmbedding, ...]) -> None:
+        if not embeddings:
+            return
+        timestamp = _now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for embedding in embeddings:
+                self._insert_visual_embedding(connection, embedding, timestamp)
+            connection.commit()
 
     def record_preview(self, item_id: str, message: TelegramMessageRef) -> None:
         if message.role is not TelegramMessageRole.PREVIEW:
@@ -998,6 +1099,40 @@ class SQLiteCatalog:
                 norm,
                 timestamp,
                 embedding.identity.namespace,
+            ),
+        )
+
+    @staticmethod
+    def _insert_visual_embedding(
+        connection: sqlite3.Connection,
+        item_embedding: ItemEmbedding,
+        timestamp: str,
+    ) -> None:
+        embedding = item_embedding.embedding
+        norm = math.sqrt(sum(value * value for value in embedding.values))
+        connection.execute(
+            """
+            INSERT INTO visual_embeddings(
+                item_id, provider, provider_namespace, model, dimensions, vector, norm, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(item_id) DO UPDATE SET
+                provider = excluded.provider,
+                provider_namespace = excluded.provider_namespace,
+                model = excluded.model,
+                dimensions = excluded.dimensions,
+                vector = excluded.vector,
+                norm = excluded.norm,
+                created_at = excluded.created_at
+            """,
+            (
+                item_embedding.item_id,
+                embedding.identity.provider,
+                embedding.identity.namespace,
+                embedding.identity.model,
+                len(embedding.values),
+                _pack_embedding(embedding.values),
+                norm,
+                timestamp,
             ),
         )
 

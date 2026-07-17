@@ -116,6 +116,7 @@ class AppConfig:
     vision: ProviderConfig
     text: ProviderConfig
     embedding: ProviderConfig
+    narrative: ProviderConfig
     bot: TelegramBotConfig
     history: TelegramHistoryConfig
 
@@ -170,6 +171,7 @@ class AppConfig:
         vision_base_url = _optional(environment, "VISION_BASE_URL")
         text_base_url = _optional(environment, "TEXT_BASE_URL")
         embedding_base_url = _optional(environment, "EMBEDDING_BASE_URL")
+        narrative_base_url = _optional(environment, "NARRATIVE_BASE_URL")
 
         return cls(
             storage=StorageConfig(
@@ -201,6 +203,18 @@ class AppConfig:
                     environment, "EMBEDDING", embedding_base_url
                 ),
                 dimensions=dimensions,
+            ),
+            narrative=ProviderConfig(
+                provider=environment.get("NARRATIVE_PROVIDER", "openai").strip().lower(),
+                api_key=_optional(environment, "NARRATIVE_API_KEY") or openai_key,
+                base_url=narrative_base_url,
+                model=environment.get(
+                    "NARRATIVE_MODEL",
+                    environment.get("TEXT_MODEL", "gpt-5.6-terra"),
+                ).strip(),
+                identity_namespace=_identity_namespace(
+                    environment, "NARRATIVE", narrative_base_url
+                ),
             ),
             bot=TelegramBotConfig(
                 token=_optional(environment, "TELEGRAM_BOT_TOKEN"),

@@ -10,6 +10,11 @@ class ItemKind(StrEnum):
     SIGN = "sign"
 
 
+class EmbeddingKind(StrEnum):
+    SEMANTIC = "semantic"
+    VISUAL = "visual"
+
+
 class SourceKind(StrEnum):
     BOT = "bot"
     CHANNEL_IMPORT = "channel_import"
@@ -311,3 +316,22 @@ class SearchHit:
     asset_relative_path: str
     status: ReviewStatus
     score: float
+
+
+@dataclass(frozen=True, slots=True)
+class ItemEmbedding:
+    item_id: str
+    embedding: Embedding
+
+
+@dataclass(frozen=True, slots=True)
+class SignEmbeddingDocument:
+    item_id: str
+    parent_photo_id: str
+    text: BilingualText
+    topics_en: tuple[str, ...]
+    topics_ru: tuple[str, ...]
+    asset_relative_path: str
+    status: ReviewStatus
+    semantic_embedding: Embedding
+    visual_embedding: Embedding | None

@@ -75,5 +75,7 @@ docker compose --profile tools run --rm importer
 All originals, crops, SQLite files, and the Telethon session live in the `cancel_capture_data` volume.
 Back up that volume; never add it or `.env` to Git.
 
-See [architecture decisions](docs/architecture.md) and the [operations runbook](docs/runbook.md) for
-privacy boundaries, state transitions, provider swapping, recovery, and deployment details.
+See the [implementation overview](docs/implementation.md),
+[architecture decisions](docs/architecture.md), and the [operations runbook](docs/runbook.md) for
+the current runtime shape, privacy boundaries, state transitions, provider swapping, recovery, and
+deployment details.
