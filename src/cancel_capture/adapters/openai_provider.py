@@ -35,9 +35,11 @@ from cancel_capture.narrative_models import (
 )
 from cancel_capture.prompts import (
     ARCHIVAL_TEXT_SYSTEM_PROMPT,
+    NEWS_SYSTEM_PROMPT,
     VISION_SYSTEM_PROMPT,
     VISION_USER_PROMPT,
     render_archival_text_user_prompt,
+    render_news_user_prompt,
 )
 
 
@@ -283,15 +285,6 @@ class OpenAIEmbeddingProvider:
         )
 
 
-_NEWS_SYSTEM_PROMPT = (
-    "Assemble a short Markdown brief of verified, recent news items that a fiction writer could use "
-    "to ground a near-future story. List at most six items, one per bullet, each with the "
-    "publication date (YYYY-MM-DD when known), the publisher, and a single-sentence factual "
-    "summary. Use the web_search tool for every claim and keep citations. Do not add analysis, "
-    "opinion, or predictions; do not repeat items from earlier bullets."
-)
-
-
 class OpenAINarrativeProvider:
     def __init__(self, config: ProviderConfig) -> None:
         self._config = config
@@ -380,13 +373,10 @@ class OpenAICurrentNewsProvider:
             model=self._config.model,
             tools=[tool],
             input=[
-                {"role": "system", "content": _NEWS_SYSTEM_PROMPT},
+                {"role": "system", "content": NEWS_SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": (
-                        f"Current date: {current_date}. Story anchor: {query.strip()}\n"
-                        "Return the Markdown brief only."
-                    ),
+                    "content": render_news_user_prompt(query, current_date=current_date),
                 },
             ],
         )

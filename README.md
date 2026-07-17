@@ -75,7 +75,12 @@ docker compose --profile tools run --rm importer
 All originals, crops, SQLite files, and the Telethon session live in the `cancel_capture_data` volume.
 Back up that volume; never add it or `.env` to Git.
 
-See the [implementation overview](docs/implementation.md),
-[architecture decisions](docs/architecture.md), and the [operations runbook](docs/runbook.md) for
-the current runtime shape, privacy boundaries, state transitions, provider swapping, recovery, and
-deployment details.
+Documentation:
+
+- [Implementation overview](docs/implementation.md) — entry point; indexes all deep-dive pages and maps components to source
+- [Ingestion](docs/ingestion.md) — upload pipeline: detection, cropping, metadata extraction, embedding, and sign analysis
+- [Review](docs/review.md) — Telegram approval flow, callback handling, and publish/reject state machine
+- [Persistence](docs/persistence.md) — SQLite schema, migrations, WAL setup, and catalog interface
+- [Experiments](docs/experiments.md) — Streamlit-only narrative generation and cluster-theme exploration
+- [Architecture decisions](docs/architecture.md) — provider protocol design, privacy boundaries, and key tradeoffs
+- [Operations runbook](docs/runbook.md) — provider swapping, backup, recovery, and deployment details

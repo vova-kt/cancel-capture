@@ -6,14 +6,6 @@ from cancel_capture.adapters.filesystem import ContentAddressedAssetStore
 from cancel_capture.adapters.image import PillowImageProcessor
 from cancel_capture.adapters.markdown_narratives import MarkdownNarrativeStore
 from cancel_capture.adapters.metadata import BestEffortMetadataExtractor
-from cancel_capture.adapters.openai_provider import (
-    OpenAIClusterThemeProvider,
-    OpenAICurrentNewsProvider,
-    OpenAIEmbeddingProvider,
-    OpenAINarrativeProvider,
-    OpenAITextProvider,
-    OpenAIVisionProvider,
-)
 from cancel_capture.adapters.sqlite_catalog import SQLiteCatalog
 from cancel_capture.adapters.visual_embedding import PillowVisualEmbeddingProvider
 from cancel_capture.application.cluster_theme import ClusterThemeService
@@ -25,6 +17,14 @@ from cancel_capture.application.search import SearchService
 from cancel_capture.application.visual_embeddings import VisualEmbeddingService
 from cancel_capture.config import AppConfig
 from cancel_capture.ports import EmbeddingProvider
+from cancel_capture.provider_registry import (
+    build_cluster_theme,
+    build_current_news,
+    build_embedding,
+    build_narrative,
+    build_text,
+    build_vision,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,9 +58,9 @@ def build_services(config: AppConfig) -> Services:
         max_image_pixels=config.storage.max_image_pixels,
         max_analysis_side=config.storage.max_analysis_side,
     )
-    vision = OpenAIVisionProvider(config.vision)
-    text = OpenAITextProvider(config.text)
-    embeddings = OpenAIEmbeddingProvider(config.embedding)
+    vision = build_vision(config.vision)
+    text = build_text(config.text)
+    embeddings = build_embedding(config.embedding)
     return Services(
         config=config,
         assets=assets,
@@ -89,9 +89,9 @@ def build_narrative_services(services: Services) -> NarrativeServices:
     visual_provider = PillowVisualEmbeddingProvider(
         max_image_pixels=config.storage.max_image_pixels,
     )
-    cluster_theme_provider = OpenAIClusterThemeProvider(config.narrative)
-    current_news_provider = OpenAICurrentNewsProvider(config.narrative)
-    narrative_provider = OpenAINarrativeProvider(config.narrative)
+    cluster_theme_provider = build_cluster_theme(config.narrative)
+    current_news_provider = build_current_news(config.narrative)
+    narrative_provider = build_narrative(config.narrative)
     store = MarkdownNarrativeStore(config.storage.data_dir)
     return NarrativeServices(
         selection=NarrativeSelectionService(services.catalog),

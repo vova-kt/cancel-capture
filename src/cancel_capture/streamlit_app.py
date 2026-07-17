@@ -8,7 +8,7 @@ import json
 import secrets
 from collections.abc import Awaitable, Sequence
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 from uuid import uuid4
 
 import altair as alt
@@ -85,6 +85,32 @@ def _run[T](coroutine: Awaitable[T]) -> T:
 
 async def _await[T](coroutine: Awaitable[T]) -> T:
     return await coroutine
+
+
+class StreamlitProgress:
+    """Bridge our ProgressReporter protocol onto a Streamlit ``st.status`` container.
+
+    ``st.status`` streams children to the browser as the script executes, so ``note`` and
+    ``stage`` calls made during an ``asyncio.run`` inner loop reach the user in near real time.
+    """
+
+    def __init__(self, status: object) -> None:
+        self._status = cast("_StatusApi", status)
+
+    def stage(self, key: str, label: str) -> None:
+        self._status.update(label=label, state="running")
+
+    def note(self, text: str) -> None:
+        self._status.write(f"· {text}")
+
+    def complete(self, label: str, *, ok: bool = True) -> None:
+        self._status.update(label=label, state="complete" if ok else "error")
+
+
+class _StatusApi(Protocol):
+    def update(self, *, label: str, state: str) -> None: ...
+
+    def write(self, body: object) -> None: ...
 
 
 def _sign_documents(services: Services) -> tuple[SearchDocument, ...]:
@@ -543,9 +569,9 @@ def _narrative_tab(services: Services, narrative: NarrativeServices) -> None:
             news_query=selection.anchor.document.text.en,
         )
         try:
-            with st.status("Gathering news and drafting the story…", expanded=False) as status:
-                result = _run(narrative.experiments.generate(request))
-                status.update(label="Story ready", state="complete")
+            with st.status("Starting…", expanded=True) as status:
+                reporter = StreamlitProgress(status)
+                result = _run(narrative.experiments.generate(request, progress=reporter))
         except CancelCaptureError as error:
             st.error(f"Narrative generation failed: {error}")
         else:

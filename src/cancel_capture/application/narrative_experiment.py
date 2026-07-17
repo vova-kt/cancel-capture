@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from random import Random
 
 from cancel_capture.application.narrative_selection import (
     NarrativeSelection,
@@ -18,15 +19,18 @@ from cancel_capture.narrative_models import (
     StoredNarrativeArtifact,
 )
 from cancel_capture.ports import CurrentNewsProvider, NarrativeProvider, NarrativeStore
+from cancel_capture.progress import NullProgress, ProgressReporter, with_periodic_notes
 from cancel_capture.prompts import (
     NARRATIVE_SYSTEM_PROMPT,
     NarrativeStrategy,
     minutes_to_target_words,
     render_narrative_user_prompt,
 )
+from cancel_capture.wait_lines import random_wait_line
 
 DEFAULT_ANCHOR_WEIGHT = 2.5
 DEFAULT_COMPANION_WEIGHT = 1.0
+DEFAULT_WAIT_INTERVAL_SECONDS = 6.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,18 +76,36 @@ class NarrativeExperimentService:
         news: CurrentNewsProvider,
         narrative: NarrativeProvider,
         store: NarrativeStore,
+        *,
+        wait_interval_seconds: float = DEFAULT_WAIT_INTERVAL_SECONDS,
     ) -> None:
         self._news = news
         self._narrative = narrative
         self._store = store
+        self._wait_interval_seconds = wait_interval_seconds
 
-    async def generate(self, experiment: NarrativeExperimentRequest) -> NarrativeExperimentResult:
+    async def generate(
+        self,
+        experiment: NarrativeExperimentRequest,
+        *,
+        progress: ProgressReporter | None = None,
+    ) -> NarrativeExperimentResult:
+        reporter: ProgressReporter = progress or NullProgress()
+        rng = Random()  # entertainment lines are always fresh, unrelated to sampling seed
         now = datetime.now(UTC)
         start_date = experiment.start_date or now.date().isoformat()
         end_year = experiment.end_year or (now.year + 5)
         target_words = minutes_to_target_words(experiment.reading_minutes, experiment.language)
 
-        news = await self._news.research(experiment.news_query, current_date=start_date)
+        reporter.stage("news", "Reading current events")
+        reporter.note(random_wait_line("news", rng=rng))
+        news = await with_periodic_notes(
+            self._news.research(experiment.news_query, current_date=start_date),
+            note_provider=lambda: random_wait_line("news", rng=rng),
+            interval_seconds=self._wait_interval_seconds,
+            reporter=reporter,
+        )
+
         sources = _build_sources(experiment)
         user_prompt = render_narrative_user_prompt(
             start_date=start_date,
@@ -108,7 +130,17 @@ class NarrativeExperimentService:
             sources=sources,
         )
 
-        draft = await self._narrative.generate(generation_request)
+        reporter.stage("drafting", "Writing the story")
+        reporter.note(random_wait_line("drafting", rng=rng))
+        draft = await with_periodic_notes(
+            self._narrative.generate(generation_request),
+            note_provider=lambda: random_wait_line("drafting", rng=rng),
+            interval_seconds=self._wait_interval_seconds,
+            reporter=reporter,
+        )
+
+        reporter.stage("saving", "Filing the story")
+        reporter.note(random_wait_line("saving", rng=rng))
         identity = self._narrative.identity
         metadata = NarrativeArtifactMetadata.create(
             anchor_sign_id=experiment.selection.anchor.document.item_id,
@@ -137,6 +169,7 @@ class NarrativeExperimentService:
             metadata=metadata,
         )
         stored = self._store.save(artifact)
+        reporter.complete("Story ready", ok=True)
         return NarrativeExperimentResult(stored=stored, news=news, request=generation_request)
 
     def list_saved(self) -> tuple[StoredNarrativeArtifact, ...]:

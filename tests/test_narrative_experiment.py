@@ -92,6 +92,8 @@ class FakeNarrative:
 
 
 async def test_experiment_saves_narrative_and_records_metadata(tmp_path: Path) -> None:
+    from tests.test_progress import RecordingReporter
+
     store = MarkdownNarrativeStore(tmp_path)
     news = FakeCurrentNews()
     narrative = FakeNarrative()
@@ -109,7 +111,8 @@ async def test_experiment_saves_narrative_and_records_metadata(tmp_path: Path) -
         random_seed=17,
         news_query="Anchor topic",
     )
-    result = await service.generate(request)
+    reporter = RecordingReporter()
+    result = await service.generate(request, progress=reporter)
 
     assert news.calls == 1
     assert len(narrative.requests) == 1
@@ -124,6 +127,10 @@ async def test_experiment_saves_narrative_and_records_metadata(tmp_path: Path) -
     reread = service.read_saved(stored.relative_path)
     assert reread == stored
     assert service.list_saved() == (stored,)
+
+    assert [key for key, _label in reporter.stages] == ["news", "drafting", "saving"]
+    assert reporter.completions == [("Story ready", True)]
+    assert reporter.notes  # at least the pre-stage entertainment lines fired
 
 
 async def test_experiment_request_validates_weights_and_prompt() -> None:

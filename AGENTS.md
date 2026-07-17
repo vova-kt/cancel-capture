@@ -14,6 +14,12 @@
 - Narrative and cluster-theme experiments run only in Streamlit. The bot and CLI must not require
   a narrative API key; compose the narrative service graph lazily via `build_narrative_services`.
 - Store all prompts in `cancel_capture.prompts`; adapters must not carry prompt text inline.
+- Route every remote provider through `cancel_capture.provider_registry`. New backends register
+  themselves under the `ProviderConfig.provider` key; adapters are never instantiated directly
+  from application or container code.
+- Long-running orchestration takes an optional `ProgressReporter`; UIs implement the protocol
+  (`StreamlitProgress`, future Telegram reporter). Wait-line copy is data in
+  `cancel_capture.wait_lines`.
 
 ## Commands
 
@@ -22,7 +28,7 @@
 - Initialize or inspect configuration: `uv run cancel-capture doctor`
 - Run the bot: `uv run cancel-capture bot`
 - Import channel history: `uv run cancel-capture import-history`
-- Run the development UI: `uv run streamlit run src/cancel_capture/streamlit_app.py`
+- Run the development UI: `./streamlit.sh`
 - Run in Docker: `docker compose up -d bot`
 
 ## Engineering rules
@@ -60,6 +66,16 @@
 - Relevant operational or architectural documentation is updated without duplicating code.
 - No secret, private metadata, runtime asset, or session credential appears in the diff or logs.
 - External side effects are reported accurately; unverified live-provider behavior is not claimed.
+
+Documentation:
+
+- [Implementation overview](docs/implementation.md) — entry point; indexes all deep-dive pages and maps components to source
+- [Ingestion](docs/ingestion.md) — upload pipeline: detection, cropping, metadata extraction, embedding, and sign analysis
+- [Review](docs/review.md) — Telegram approval flow, callback handling, and publish/reject state machine
+- [Persistence](docs/persistence.md) — SQLite schema, migrations, WAL setup, and catalog interface
+- [Experiments](docs/experiments.md) — Streamlit-only narrative generation and cluster-theme exploration
+- [Architecture decisions](docs/architecture.md) — provider protocol design, privacy boundaries, and key tradeoffs
+- [Operations runbook](docs/runbook.md) — provider swapping, backup, recovery, and deployment details
 
 This file follows current [OpenAI AGENTS.md guidance](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
 and [Anthropic CLAUDE.md guidance](https://code.claude.com/docs/en/best-practices): keep durable
