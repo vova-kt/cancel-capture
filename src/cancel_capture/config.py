@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 from cancel_capture.errors import ConfigurationError
 
@@ -14,6 +14,20 @@ from cancel_capture.errors import ConfigurationError
 def _optional(environment: Mapping[str, str], name: str) -> str | None:
     value = environment.get(name, "").strip()
     return value or None
+
+
+def _resolve_path(value: str, *, base: Path | None) -> Path:
+    """Expand ``~`` and anchor relative paths to ``base`` when known.
+
+    Anchoring to the ``.env`` file's directory lets ``DATA_DIR=./data`` mean the same folder
+    regardless of the working directory the process was launched from — otherwise processes
+    started from a subdirectory (e.g. an IDE run configuration) plant a stray ``data/`` next
+    to themselves.
+    """
+    path = Path(value).expanduser()
+    if not path.is_absolute() and base is not None:
+        return base / path
+    return path
 
 
 def _positive_int(environment: Mapping[str, str], name: str, default: int) -> int:
@@ -127,15 +141,22 @@ class AppConfig:
         *,
         load_dotenv_file: bool = True,
     ) -> AppConfig:
+        project_root: Path | None = None
         if environment is None:
             if load_dotenv_file:
-                load_dotenv()
+                dotenv_path = find_dotenv(usecwd=True)
+                if dotenv_path:
+                    load_dotenv(dotenv_path)
+                    project_root = Path(dotenv_path).resolve().parent
+                else:
+                    load_dotenv()
             environment = os.environ
 
-        data_dir = Path(environment.get("DATA_DIR", "./data")).expanduser()
-        sqlite_path = Path(
-            environment.get("SQLITE_PATH", str(data_dir / "catalog.sqlite3"))
-        ).expanduser()
+        data_dir = _resolve_path(environment.get("DATA_DIR", "./data"), base=project_root)
+        sqlite_path = _resolve_path(
+            environment.get("SQLITE_PATH", str(data_dir / "catalog.sqlite3")),
+            base=project_root,
+        )
         openai_key = _optional(environment, "OPENAI_API_KEY")
 
         dimensions_raw = _optional(environment, "EMBEDDING_DIMENSIONS")
@@ -230,11 +251,12 @@ class AppConfig:
                 api_id=api_id,
                 api_hash=_optional(environment, "TG_API_HASH"),
                 phone=_optional(environment, "TG_PHONE"),
-                session_path=Path(
+                session_path=_resolve_path(
                     environment.get(
                         "TG_SESSION_PATH", str(data_dir / "telegram" / "cancel_capture")
-                    )
-                ).expanduser(),
+                    ),
+                    base=project_root,
+                ),
                 channel=channel,
             ),
         )

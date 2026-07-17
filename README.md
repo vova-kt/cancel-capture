@@ -54,7 +54,7 @@ remaining Telegram/file facts and does not mislabel post time as camera capture 
 ## Development UI and search
 
 ```sh
-uv run streamlit run src/cancel_capture/streamlit_app.py
+./streamlit.sh
 uv run cancel-capture search "bicycles and scooters"
 ```
 

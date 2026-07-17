@@ -50,7 +50,7 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM", "RUF", "PERF"]
 "src/cancel_capture/adapters/openai_provider.py" = ["E501"]
 "src/cancel_capture/adapters/telegram_bot.py" = ["RUF001"]
 "src/cancel_capture/application/ingest.py" = ["RUF001"]
-"src/cancel_capture/streamlit_app.py" = ["RUF001"]
+"src/cancel_capture/streamlitapp/*.py" = ["RUF001"]
 
 [tool.pyright]
 include = ["src"]

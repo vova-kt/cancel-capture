@@ -25,7 +25,7 @@ application services.
   image documents, creates private review cards, and publishes approved crops.
 - The [Telethon importer](../src/cancel_capture/adapters/telethon_history.py) backfills existing
   channel images without reposting them.
-- The private [Streamlit application](../src/cancel_capture/streamlit_app.py) supports upload,
+- The private [Streamlit application](../src/cancel_capture/streamlitapp/app.py) supports upload,
   reanalysis, catalog inspection, local rejection, bilingual search, hierarchical clustering,
   and narrative generation. It deliberately does not publish to the channel.
 

@@ -16,7 +16,7 @@ def test_streamlit_starts_and_reports_missing_provider_configuration(monkeypatch
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "data" / "catalog.sqlite3"))
 
-    app_path = Path(__file__).parents[1] / "src" / "cancel_capture" / "streamlit_app.py"
+    app_path = Path(__file__).parents[1] / "src" / "cancel_capture" / "streamlitapp" / "app.py"
     app = AppTest.from_file(str(app_path)).run(timeout=20)
 
     assert not app.exception
