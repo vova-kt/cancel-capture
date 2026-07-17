@@ -13,12 +13,13 @@ from cancel_capture.application import (
 )
 from cancel_capture.container import Services
 from cancel_capture.errors import CancelCaptureError
-from cancel_capture.models import ReviewCandidate
+from cancel_capture.models import ReviewCandidate, ReviewStatus
 from cancel_capture.narrative_models import NarrativeLanguage, StoredNarrativeArtifact
 from cancel_capture.prompts import NarrativeStrategy
 from cancel_capture.streamlitapp._shared import (
     DEFAULT_STATUSES,
     LANGUAGE_LABELS,
+    SIMILARITY_LABELS,
     STRATEGY_LABELS,
     StreamlitProgress,
     core_services,
@@ -146,6 +147,8 @@ def _narrative_form(anchor_id: str) -> None:
             key="catalog.narrative.strategy",
         )
 
+    mode, semantic_weight, threshold = _similarity_controls(anchor_id)
+
     result_key = f"catalog.narrative.result.{anchor_id}"
     if st.button("Generate story", type="primary", key=f"catalog-gen-{anchor_id}"):
         seed = new_seed()
@@ -153,16 +156,16 @@ def _narrative_form(anchor_id: str) -> None:
             selection = narrative.selection.select(
                 anchor_id,
                 count=int(companion_count),
-                maximum_similarity=0.55,
+                maximum_similarity=threshold,
                 statuses=DEFAULT_STATUSES,
-                mode=SimilarityMode.HYBRID,
-                semantic_weight=0.65,
+                mode=mode,
+                semantic_weight=semantic_weight,
                 seed=seed,
             )
             if not selection.companions:
                 st.error(
                     "No eligible companion signs matched the similarity filter. "
-                    "Ingest more signs or loosen the constraints before generating."
+                    "Loosen the threshold or switch similarity mode."
                 )
                 return
             request = NarrativeExperimentRequest(
@@ -171,9 +174,9 @@ def _narrative_form(anchor_id: str) -> None:
                 language=NarrativeLanguage(str(language_value)),
                 reading_minutes=int(reading_minutes),
                 system_prompt=default_system_prompt(),
-                similarity_mode=SimilarityMode.HYBRID,
-                similarity_threshold=0.55,
-                semantic_weight=0.65,
+                similarity_mode=mode,
+                similarity_threshold=threshold,
+                semantic_weight=semantic_weight,
                 anchor_weight=2.5,
                 random_seed=seed,
                 news_query=selection.anchor.document.text.en,
@@ -189,6 +192,113 @@ def _narrative_form(anchor_id: str) -> None:
     stored = st.session_state.get(result_key)
     if isinstance(stored, StoredNarrativeArtifact):
         _render_artifact(stored)
+
+
+def _similarity_controls(anchor_id: str) -> tuple[SimilarityMode, float, float]:
+    """Render the similarity mode / weight / threshold row with a live match-count preview.
+
+    The similarity pool is cached per anchor+mode+weight so dragging the threshold slider
+    only re-scans an in-memory tuple — no catalog scan or model call fires per slider tick.
+    """
+    row = st.columns([1.2, 1.2, 2])
+    with row[0]:
+        mode_value = st.selectbox(
+            "Similarity mode",
+            options=[m.value for m in SimilarityMode],
+            format_func=lambda value: SIMILARITY_LABELS[SimilarityMode(value)],
+            index=[m.value for m in SimilarityMode].index(SimilarityMode.SEMANTIC.value),
+            key="catalog.narrative.mode",
+        )
+    mode = SimilarityMode(str(mode_value))
+
+    with row[1]:
+        if mode is SimilarityMode.HYBRID:
+            semantic_weight = float(
+                st.slider(
+                    "Semantic weight",
+                    min_value=0.0,
+                    max_value=1.0,
+                    step=0.05,
+                    value=0.65,
+                    key="catalog.narrative.semantic_weight",
+                )
+            )
+        else:
+            st.caption("Semantic weight applies only to Hybrid mode.")
+            semantic_weight = 0.65
+
+    similarities = _eligible_similarities(anchor_id, mode, semantic_weight, DEFAULT_STATUSES)
+    initial = _suggest_threshold(similarities)
+
+    with row[2]:
+        threshold = float(
+            st.slider(
+                "Max similarity to anchor",
+                min_value=-1.0,
+                max_value=1.0,
+                step=0.01,
+                value=initial,
+                key="catalog.narrative.threshold",
+                help=(
+                    "Companions must fall at or below this cosine similarity to the anchor "
+                    "(lower ⇒ more diverse)."
+                ),
+            )
+        )
+
+    _render_pool_preview(similarities, threshold, mode)
+    return mode, semantic_weight, threshold
+
+
+@st.cache_data(show_spinner=False, ttl=60)
+def _eligible_similarities(
+    anchor_id: str,
+    mode: SimilarityMode,
+    semantic_weight: float,
+    statuses: frozenset[ReviewStatus],
+) -> tuple[float, ...]:
+    return narrative_services().selection.list_eligible_similarities(
+        anchor_id,
+        statuses=statuses,
+        mode=mode,
+        semantic_weight=semantic_weight,
+    )
+
+
+def _suggest_threshold(similarities: tuple[float, ...]) -> float:
+    if not similarities:
+        return 0.9
+    # 25th percentile of the pool — keeps companions on the more-dissimilar side without
+    # pruning so aggressively that the sample can't fill.
+    return round(similarities[max(0, len(similarities) // 4)], 2)
+
+
+def _render_pool_preview(
+    similarities: tuple[float, ...],
+    threshold: float,
+    mode: SimilarityMode,
+) -> None:
+    if not similarities:
+        if mode is SimilarityMode.HYBRID:
+            st.warning(
+                "Hybrid mode found no candidates — visual embeddings may be missing. "
+                "Run `scripts/backfill_visual_embeddings.py` or switch mode."
+            )
+        elif mode is SimilarityMode.VISUAL:
+            st.warning(
+                "No visual embeddings on record. "
+                "Run `scripts/backfill_visual_embeddings.py` to populate them."
+            )
+        else:
+            st.warning("No structurally eligible companions for this anchor.")
+        return
+    matches = sum(1 for value in similarities if value <= threshold)
+    median = similarities[len(similarities) // 2]
+    st.caption(
+        f"**{matches}** eligible companion(s) at ≤ {threshold:.2f} · "
+        f"pool n={len(similarities)} · min={similarities[0]:.2f} · "
+        f"median={median:.2f} · max={similarities[-1]:.2f}"
+    )
 
 
 def _render_artifact(stored: StoredNarrativeArtifact) -> None:

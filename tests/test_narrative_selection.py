@@ -170,6 +170,33 @@ def test_random_anchor_returns_none_when_no_candidates_and_respects_seed() -> No
     assert first.item_id == repeated.item_id
 
 
+def test_list_eligible_similarities_returns_sorted_values_and_rejects_unknown_anchor() -> None:
+    anchor = _document(item_id="anchor", parent="a", semantic=(1.0, 0.0))
+    sibling = _document(item_id="sibling", parent="a", semantic=(0.0, 1.0))
+    close = _document(item_id="close", parent="b", semantic=(0.9, 0.44))
+    distant = _document(item_id="distant", parent="c", semantic=(0.0, 1.0))
+    hidden = _document(
+        item_id="hidden", parent="d", semantic=(-1.0, 0.0), status=ReviewStatus.REJECTED
+    )
+
+    service = _service((anchor, sibling, close, distant, hidden))
+    similarities = service.list_eligible_similarities(
+        "anchor",
+        statuses=frozenset({ReviewStatus.PUBLISHED}),
+        mode=SimilarityMode.SEMANTIC,
+    )
+
+    assert list(similarities) == sorted(similarities)
+    assert len(similarities) == 2  # sibling and hidden excluded, close + distant included
+    assert similarities[-1] > similarities[0]
+
+    with pytest.raises(ValueError, match="Unknown narrative anchor"):
+        service.list_eligible_similarities(
+            "missing",
+            statuses=frozenset({ReviewStatus.PUBLISHED}),
+        )
+
+
 def test_select_validates_inputs() -> None:
     anchor = _document(item_id="anchor", parent="a", semantic=(1.0, 0.0))
     service = _service((anchor,))

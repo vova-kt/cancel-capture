@@ -52,6 +52,39 @@ class NarrativeSelectionService:
             return None
         return random.Random(seed).choice(candidates)
 
+    def list_eligible_similarities(
+        self,
+        anchor_id: str,
+        *,
+        statuses: frozenset[ReviewStatus],
+        mode: SimilarityMode = SimilarityMode.HYBRID,
+        semantic_weight: float = 0.65,
+    ) -> tuple[float, ...]:
+        """Return sorted anchor-to-candidate similarities across every structurally eligible
+        sibling — same input as :meth:`select` minus the ``maximum_similarity`` cut.
+
+        Powers responsive threshold previews: the caller caches this tuple once and derives
+        the match count for any candidate threshold with a linear scan.
+        """
+        documents = self._catalog.list_sign_embedding_documents()
+        anchor = next((d for d in documents if d.item_id == anchor_id), None)
+        if anchor is None:
+            raise ValueError(f"Unknown narrative anchor: {anchor_id}")
+        values: list[float] = []
+        for candidate in documents:
+            if candidate.item_id == anchor.item_id:
+                continue
+            if candidate.parent_photo_id == anchor.parent_photo_id:
+                continue
+            if candidate.status not in statuses:
+                continue
+            similarity = self._similarity(anchor, candidate, mode, semantic_weight)
+            if similarity is None:
+                continue
+            values.append(similarity)
+        values.sort()
+        return tuple(values)
+
     def select(
         self,
         anchor_id: str,

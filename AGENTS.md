@@ -58,6 +58,11 @@
     docstrings, or repeat information visible in names and types.
 12. Preserve unrelated user changes. Do not commit generated data, `.env`, Telegram session files,
     databases, uploaded images, analysis assets, or provider responses.
+13. Keep interactive UI responsive. Any Streamlit control that reruns on change (sliders,
+    selectboxes, checkboxes) must not trigger a fresh model call, catalog scan, or heavy
+    computation per event. Precompute or cache the underlying data (`@st.cache_data` /
+    `@st.cache_resource`) and derive per-tick counts and previews from the cached view.
+    Expensive work belongs behind an explicit action button.
 
 ## Definition of done
 

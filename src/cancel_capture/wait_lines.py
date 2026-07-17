@@ -19,6 +19,9 @@ NARRATIVE_STAGE_LINES: dict[str, tuple[str, ...]] = {
         "Following the citations like breadcrumbs.",
         "Yes, that also happened this week. Sorry.",
         "Reading the internet one careful sip at a time.",
+        "Digging back through last year's news drawer.",
+        "Filtering out the loud stuff to find the quiet stuff.",
+        "Asking: was this discussed everywhere, or only in the group chat?",
     ),
     "drafting": (
         "Warming up the prose engine.",
@@ -37,12 +40,16 @@ NARRATIVE_STAGE_LINES: dict[str, tuple[str, ...]] = {
         "Sorting the future into small manageable disasters.",
         "Feeling one narrator emotion at a time.",
         "The metaphor is still loading. Almost there.",
+        "Auditing the paragraph for accidental moralising.",
+        "Second-guessing the second sentence.",
+        "Trimming an adverb, then putting it back.",
     ),
     "saving": (
         "Wrapping the story in tinfoil.",
         "Sliding it into the archive drawer.",
         "Making a copy for future us.",
         "Filing this under 'ask again in five years'.",
+        "Stapling the citations to the back.",
     ),
 }
 

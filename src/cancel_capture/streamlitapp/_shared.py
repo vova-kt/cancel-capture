@@ -76,24 +76,34 @@ def image_to_data_uri(path_str: str, *, max_bytes: int = 512_000) -> str | None:
     return f"data:image/{media_type};base64,{base64.b64encode(data).decode('ascii')}"
 
 
+class _NoteSlot(Protocol):
+    def write(self, body: object) -> None: ...
+
+
 class _StatusApi(Protocol):
     def update(self, *, label: str, state: str) -> None: ...
 
-    def write(self, body: object) -> None: ...
+    def empty(self) -> _NoteSlot: ...
 
 
 class StreamlitProgress:
     """Bridge ProgressReporter onto an ``st.status`` container so ``note`` and ``stage`` calls
-    made inside an ``asyncio.run`` inner loop reach the browser in near real time."""
+    made inside an ``asyncio.run`` inner loop reach the browser in near real time.
+
+    The display is exactly two lines: the ``st.status`` header carries the current phase
+    label, and a single ``st.empty`` slot inside the status shows the latest wait-line —
+    each ``note`` replaces the previous one instead of appending, so the panel stays as
+    phase-on-top, entertainment-on-bottom rather than an accumulating log."""
 
     def __init__(self, status: object) -> None:
         self._status = cast("_StatusApi", status)
+        self._note_slot = self._status.empty()
 
     def stage(self, key: str, label: str) -> None:
         self._status.update(label=label, state="running")
 
     def note(self, text: str) -> None:
-        self._status.write(f"· {text}")
+        self._note_slot.write(text)
 
     def complete(self, label: str, *, ok: bool = True) -> None:
         self._status.update(label=label, state="complete" if ok else "error")
