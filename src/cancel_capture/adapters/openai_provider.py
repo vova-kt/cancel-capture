@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 import base64
-import json
+from typing import cast
 
 from openai import AsyncOpenAI
+from openai.types.responses.response import Response
+from openai.types.responses.response_output_message import ResponseOutputMessage
+from openai.types.responses.response_output_text import (
+    AnnotationURLCitation,
+    ResponseOutputText,
+)
+from openai.types.responses.tool_param import ToolParam
 from pydantic import BaseModel, ConfigDict, Field
 
 from cancel_capture.config import ProviderConfig
@@ -18,6 +25,19 @@ from cancel_capture.models import (
     ProviderIdentity,
     SignDescription,
     SignObservation,
+)
+from cancel_capture.narrative_models import (
+    ClusterTheme,
+    NarrativeDraft,
+    NarrativeGenerationRequest,
+    NewsBrief,
+    WebCitation,
+)
+from cancel_capture.prompts import (
+    ARCHIVAL_TEXT_SYSTEM_PROMPT,
+    VISION_SYSTEM_PROMPT,
+    VISION_USER_PROMPT,
+    render_archival_text_user_prompt,
 )
 
 
@@ -64,6 +84,21 @@ class _PhotoDescriptionPayload(BaseModel):
     signs: list[_SignDescriptionPayload]
 
 
+class _ClusterThemePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    summary: str
+
+
+class _NarrativePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    description: str
+    body_markdown: str
+
+
 def _client(config: ProviderConfig) -> AsyncOpenAI:
     if config.provider != "openai":
         raise ConfigurationError(
@@ -95,25 +130,14 @@ class OpenAIVisionProvider:
             input=[
                 {
                     "role": "system",
-                    "content": (
-                        "Inspect documentary photographs for prohibition signs. A qualifying sign is "
-                        "round, has a red border, and visibly prohibits something with a red diagonal "
-                        "slash or crossing. Return every distinct qualifying sign, including partial "
-                        "but recognizable signs. Do not return ordinary traffic signs, red circles "
-                        "without a prohibition mark, logos, or decorative circles. Bounding boxes use "
-                        "normalized image coordinates from 0 to 1. Describe only visible facts; do not "
-                        "invent location, intent, or text. Order signs top-to-bottom then left-to-right."
-                    ),
+                    "content": VISION_SYSTEM_PROMPT,
                 },
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "input_text",
-                            "text": (
-                                "Describe the complete scene factually and locate every prohibition "
-                                "sign. Transcribe visible sign text exactly when legible."
-                            ),
+                            "text": VISION_USER_PROMPT,
                         },
                         {
                             "type": "input_image",
@@ -183,20 +207,11 @@ class OpenAITextProvider:
             input=[
                 {
                     "role": "system",
-                    "content": (
-                        "Write accurate archival descriptions in both English and Russian. The full "
-                        "photo description must cover setting, objects, people, composition, and the "
-                        "relationship of signs to the scene without guessing hidden facts. Each sign "
-                        "description must explain exactly what appears prohibited, its pictogram, "
-                        "wording, condition, and visual context. Preserve quoted text. Produce concise "
-                        "topic tags in both languages that will make semantic retrieval useful. Do not "
-                        "write a narrative about society or infer motivations. Keep sign ordinals "
-                        "unchanged."
-                    ),
+                    "content": ARCHIVAL_TEXT_SYSTEM_PROMPT,
                 },
                 {
                     "role": "user",
-                    "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                    "content": render_archival_text_user_prompt(payload),
                 },
             ],
             text_format=_PhotoDescriptionPayload,
@@ -266,3 +281,146 @@ class OpenAIEmbeddingProvider:
             )
             for item in ordered
         )
+
+
+_NEWS_SYSTEM_PROMPT = (
+    "Assemble a short Markdown brief of verified, recent news items that a fiction writer could use "
+    "to ground a near-future story. List at most six items, one per bullet, each with the "
+    "publication date (YYYY-MM-DD when known), the publisher, and a single-sentence factual "
+    "summary. Use the web_search tool for every claim and keep citations. Do not add analysis, "
+    "opinion, or predictions; do not repeat items from earlier bullets."
+)
+
+
+class OpenAINarrativeProvider:
+    def __init__(self, config: ProviderConfig) -> None:
+        self._config = config
+        self._client = _client(config)
+
+    @property
+    def identity(self) -> ProviderIdentity:
+        return ProviderIdentity(
+            provider=self._config.provider,
+            model=self._config.model,
+            namespace=self._config.identity_namespace,
+        )
+
+    async def generate(self, request: NarrativeGenerationRequest) -> NarrativeDraft:
+        response = await self._client.responses.parse(
+            model=self._config.model,
+            input=[
+                {"role": "system", "content": request.system_prompt},
+                {"role": "user", "content": request.user_prompt},
+            ],
+            text_format=_NarrativePayload,
+        )
+        parsed = response.output_parsed
+        if parsed is None:
+            raise ProviderResponseError("Narrative provider returned no structured story")
+        try:
+            return NarrativeDraft(
+                title=parsed.title.strip(),
+                description=parsed.description.strip(),
+                body_markdown=parsed.body_markdown.strip(),
+            )
+        except ValueError as error:
+            raise ProviderResponseError(str(error)) from error
+
+
+class OpenAIClusterThemeProvider:
+    def __init__(self, config: ProviderConfig) -> None:
+        self._config = config
+        self._client = _client(config)
+
+    @property
+    def identity(self) -> ProviderIdentity:
+        return ProviderIdentity(
+            provider=self._config.provider,
+            model=self._config.model,
+            namespace=self._config.identity_namespace,
+        )
+
+    async def summarize(self, system_prompt: str, user_prompt: str) -> ClusterTheme:
+        response = await self._client.responses.parse(
+            model=self._config.model,
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            text_format=_ClusterThemePayload,
+        )
+        parsed = response.output_parsed
+        if parsed is None:
+            raise ProviderResponseError("Cluster theme provider returned no structured summary")
+        try:
+            return ClusterTheme(title=parsed.title.strip(), summary=parsed.summary.strip())
+        except ValueError as error:
+            raise ProviderResponseError(str(error)) from error
+
+
+class OpenAICurrentNewsProvider:
+    def __init__(self, config: ProviderConfig) -> None:
+        self._config = config
+        self._client = _client(config)
+
+    @property
+    def identity(self) -> ProviderIdentity:
+        return ProviderIdentity(
+            provider=self._config.provider,
+            model=self._config.model,
+            namespace=self._config.identity_namespace,
+        )
+
+    async def research(self, query: str, *, current_date: str) -> NewsBrief:
+        tool: ToolParam = cast(
+            ToolParam,
+            {"type": "web_search", "search_context_size": "medium"},
+        )
+        response = await self._client.responses.create(
+            model=self._config.model,
+            tools=[tool],
+            input=[
+                {"role": "system", "content": _NEWS_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Current date: {current_date}. Story anchor: {query.strip()}\n"
+                        "Return the Markdown brief only."
+                    ),
+                },
+            ],
+        )
+        return _extract_news_brief(response)
+
+
+def _extract_news_brief(response: Response) -> NewsBrief:
+    parts: list[str] = []
+    citations: dict[tuple[str, str], WebCitation] = {}
+    for item in response.output:
+        if not isinstance(item, ResponseOutputMessage):
+            continue
+        for content in item.content:
+            if not isinstance(content, ResponseOutputText):
+                continue
+            parts.append(content.text)
+            for annotation in content.annotations:
+                if not isinstance(annotation, AnnotationURLCitation):
+                    continue
+                title = annotation.title.strip() or annotation.url
+                url = annotation.url.strip()
+                if not url.startswith(("http://", "https://")):
+                    continue
+                key = (title, url)
+                if key in citations:
+                    continue
+                try:
+                    citations[key] = WebCitation(title=title, url=url)
+                except ValueError:
+                    continue
+    markdown = "\n\n".join(part.strip() for part in parts if part.strip())
+    if not markdown:
+        raise ProviderResponseError("Current-news provider returned no text output")
+    try:
+        return NewsBrief(markdown=markdown, citations=tuple(citations.values()))
+    except ValueError as error:
+        raise ProviderResponseError(str(error)) from error

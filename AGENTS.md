@@ -3,13 +3,17 @@
 ## Purpose and invariants
 
 - Preserve every uploaded original byte-for-byte before decoding or calling an external API.
-- Treat camera metadata, Telegram sessions, credentials, originals, and the SQLite database as
-  private runtime data. Never commit or log them.
+- Treat camera metadata, Telegram sessions, credentials, originals, generated narratives, and the
+  SQLite database as private runtime data. Never commit or log them.
 - Public channel posts use metadata-stripped crops. Raw metadata and GPS never go into captions.
 - Telegram callbacks and history imports are replayable. State transitions and source imports must
   remain conditional and idempotent.
-- Keep vision, text, embedding, storage, catalog, and publishing behind `Protocol` interfaces. Do
-  not couple application services to OpenAI, Telegram, Streamlit, or SQLite implementations.
+- Keep vision, text, embedding, visual-embedding, narrative, cluster-theme, current-news, storage,
+  catalog, and publishing behind `Protocol` interfaces. Do not couple application services to
+  OpenAI, Telegram, Streamlit, or SQLite implementations.
+- Narrative and cluster-theme experiments run only in Streamlit. The bot and CLI must not require
+  a narrative API key; compose the narrative service graph lazily via `build_narrative_services`.
+- Store all prompts in `cancel_capture.prompts`; adapters must not carry prompt text inline.
 
 ## Commands
 

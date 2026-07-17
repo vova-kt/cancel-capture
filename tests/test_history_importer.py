@@ -76,6 +76,7 @@ async def test_importer_records_bad_message_and_continues_then_reruns(tmp_path) 
         config=config,
         assets=stack.assets,
         catalog=stack.catalog,
+        embeddings=stack.embeddings,
         ingestion=stack.ingestion,
         review=stack.review,
         search=stack.search,

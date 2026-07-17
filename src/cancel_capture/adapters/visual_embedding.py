@@ -50,9 +50,7 @@ class PillowVisualEmbeddingProvider:
 
     def embed_one(self, image: PreparedImage) -> Embedding:
         pixels = self._load_pixels(image)
-        feature_blocks = self._feature_blocks(
-            pixels, image.source_width, image.source_height
-        )
+        feature_blocks = self._feature_blocks(pixels, image.source_width, image.source_height)
         combined = np.concatenate(tuple(self._normalize(block) for block in feature_blocks))
         normalized = self._normalize(combined)
         return Embedding(

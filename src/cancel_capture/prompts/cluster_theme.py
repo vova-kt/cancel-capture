@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-
 CLUSTER_THEME_SYSTEM_PROMPT = (
     "Label a cluster of prohibition-sign descriptions for a private visual archive. "
     "Identify only the concrete theme shared by most signs. Do not infer a political "

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
-
 ARCHIVAL_TEXT_SYSTEM_PROMPT = (
     "Write accurate archival descriptions in both English and Russian. The full "
     "photo description must cover setting, objects, people, composition, and the "

@@ -10,6 +10,7 @@ from cancel_capture.prompts.narrative import (
     NARRATIVE_STRATEGY_PROMPTS,
     NARRATIVE_SYSTEM_PROMPT,
     NarrativeStrategy,
+    minutes_to_target_words,
     render_narrative_user_prompt,
 )
 from cancel_capture.prompts.vision import VISION_SYSTEM_PROMPT, VISION_USER_PROMPT
@@ -22,6 +23,7 @@ __all__ = [
     "VISION_SYSTEM_PROMPT",
     "VISION_USER_PROMPT",
     "NarrativeStrategy",
+    "minutes_to_target_words",
     "render_archival_text_user_prompt",
     "render_cluster_theme_user_prompt",
     "render_narrative_user_prompt",

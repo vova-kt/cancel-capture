@@ -1,30 +1,29 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 import stat
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
+from cancel_capture.narrative_models import (
+    NarrativeArtifact,
+    NarrativeArtifactMetadata,
+    StoredNarrativeArtifact,
+    WebCitation,
+    validate_narrative_identifier,
+)
 
 _SCHEMA_VERSION = 1
 _MAX_ARTIFACT_BYTES = 4 * 1024 * 1024
-_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
 _BODY_MARKER = "<!-- cancel-capture:narrative-body -->"
 
 
 class NarrativeArtifactFormatError(ValueError):
     pass
-
-
-def _validate_identifier(value: str, label: str) -> None:
-    if _IDENTIFIER.fullmatch(value) is None:
-        raise ValueError(f"{label} is not a safe identifier")
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -35,119 +34,6 @@ def _parse_timestamp(value: str) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("Narrative creation time must include a timezone")
     return parsed
-
-
-@dataclass(frozen=True, slots=True)
-class NarrativeArtifactMetadata:
-    attempt_id: str
-    created_at: str
-    anchor_sign_id: str
-    source_sign_ids: tuple[str, ...]
-    strategy: str
-    similarity_threshold: float
-    random_seed: int | None
-    provider: str
-    model: str
-    provider_namespace: str
-    system_prompt: str
-    user_prompt: str
-    output_version: int = 1
-
-    def __post_init__(self) -> None:
-        _validate_identifier(self.attempt_id, "Narrative attempt ID")
-        _validate_identifier(self.anchor_sign_id, "Anchor sign ID")
-        _parse_timestamp(self.created_at)
-        if not self.source_sign_ids:
-            raise ValueError("A narrative requires at least one source sign")
-        if len(set(self.source_sign_ids)) != len(self.source_sign_ids):
-            raise ValueError("Narrative source sign IDs must be unique")
-        for source_sign_id in self.source_sign_ids:
-            _validate_identifier(source_sign_id, "Source sign ID")
-        if self.anchor_sign_id in self.source_sign_ids:
-            raise ValueError("The anchor sign cannot also be a source sign")
-        if not self.strategy.strip():
-            raise ValueError("Narrative strategy cannot be empty")
-        if not math.isfinite(self.similarity_threshold) or not -1.0 <= self.similarity_threshold <= 1.0:
-            raise ValueError("Narrative similarity threshold must be within [-1, 1]")
-        if isinstance(self.random_seed, bool):
-            raise ValueError("Narrative random seed must be an integer or null")
-        for value, label in (
-            (self.provider, "Narrative provider"),
-            (self.model, "Narrative model"),
-            (self.provider_namespace, "Narrative provider namespace"),
-            (self.system_prompt, "Narrative system prompt"),
-            (self.user_prompt, "Narrative user prompt"),
-        ):
-            if not value.strip():
-                raise ValueError(f"{label} cannot be empty")
-        if self.output_version <= 0:
-            raise ValueError("Narrative output version must be positive")
-
-    @classmethod
-    def create(
-        cls,
-        *,
-        anchor_sign_id: str,
-        source_sign_ids: tuple[str, ...],
-        strategy: str,
-        similarity_threshold: float,
-        random_seed: int | None,
-        provider: str,
-        model: str,
-        provider_namespace: str,
-        system_prompt: str,
-        user_prompt: str,
-        output_version: int = 1,
-        attempt_id: str | None = None,
-        created_at: datetime | None = None,
-    ) -> NarrativeArtifactMetadata:
-        timestamp = created_at or datetime.now(UTC)
-        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-            raise ValueError("Narrative creation time must include a timezone")
-        return cls(
-            attempt_id=attempt_id or uuid4().hex,
-            created_at=timestamp.isoformat(),
-            anchor_sign_id=anchor_sign_id,
-            source_sign_ids=source_sign_ids,
-            strategy=strategy,
-            similarity_threshold=similarity_threshold,
-            random_seed=random_seed,
-            provider=provider,
-            model=model,
-            provider_namespace=provider_namespace,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            output_version=output_version,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class NarrativeArtifact:
-    title: str
-    description: str
-    body_markdown: str
-    metadata: NarrativeArtifactMetadata
-
-    def __post_init__(self) -> None:
-        title = self.title.strip()
-        if not title:
-            raise ValueError("Narrative title cannot be empty")
-        if "\n" in title or "\r" in title:
-            raise ValueError("Narrative title must fit on one line")
-        if len(title) > 200:
-            raise ValueError("Narrative title is too long")
-        if not self.description.strip():
-            raise ValueError("Narrative description cannot be empty")
-        if len(self.description) > 2_000:
-            raise ValueError("Narrative description is too long")
-        if not self.body_markdown.strip():
-            raise ValueError("Narrative body cannot be empty")
-
-
-@dataclass(frozen=True, slots=True)
-class StoredNarrativeArtifact:
-    relative_path: str
-    artifact: NarrativeArtifact
 
 
 class MarkdownNarrativeStore:
@@ -255,7 +141,7 @@ class MarkdownNarrativeStore:
         if candidate.parts != ("narratives", candidate.name) or candidate.suffix != ".md":
             raise ValueError("Narrative artifact path must stay inside the narratives directory")
         attempt_id = candidate.stem
-        _validate_identifier(attempt_id, "Narrative attempt ID")
+        validate_narrative_identifier(attempt_id, "Narrative attempt ID")
         return attempt_id
 
     @staticmethod
@@ -271,13 +157,21 @@ class MarkdownNarrativeStore:
                 "anchor_sign_id": metadata.anchor_sign_id,
                 "source_sign_ids": list(metadata.source_sign_ids),
                 "strategy": metadata.strategy,
+                "language": metadata.language,
+                "reading_minutes": metadata.reading_minutes,
+                "similarity_mode": metadata.similarity_mode,
                 "similarity_threshold": metadata.similarity_threshold,
+                "semantic_weight": metadata.semantic_weight,
                 "random_seed": metadata.random_seed,
                 "provider": metadata.provider,
                 "model": metadata.model,
                 "provider_namespace": metadata.provider_namespace,
                 "system_prompt": metadata.system_prompt,
                 "user_prompt": metadata.user_prompt,
+                "web_citations": [
+                    {"title": citation.title, "url": citation.url}
+                    for citation in metadata.web_citations
+                ],
                 "output_version": metadata.output_version,
             },
         }
@@ -286,8 +180,7 @@ class MarkdownNarrativeStore:
         description = artifact.description.strip()
         body = artifact.body_markdown.strip()
         return (
-            f"---\n{encoded_header}\n---\n"
-            f"# {title}\n\n{description}\n\n{_BODY_MARKER}\n\n{body}\n"
+            f"---\n{encoded_header}\n---\n# {title}\n\n{description}\n\n{_BODY_MARKER}\n\n{body}\n"
         )
 
     @classmethod
@@ -321,22 +214,25 @@ class MarkdownNarrativeStore:
             "anchor_sign_id",
             "source_sign_ids",
             "strategy",
+            "language",
+            "reading_minutes",
+            "similarity_mode",
             "similarity_threshold",
+            "semantic_weight",
             "random_seed",
             "provider",
             "model",
             "provider_namespace",
             "system_prompt",
             "user_prompt",
+            "web_citations",
             "output_version",
         }
         if set(raw_metadata) != expected_metadata:
             raise NarrativeArtifactFormatError("Narrative artifact metadata fields are invalid")
         random_seed_value = raw_metadata["random_seed"]
         random_seed = (
-            None
-            if random_seed_value is None
-            else cls._integer(random_seed_value, "random_seed")
+            None if random_seed_value is None else cls._integer(random_seed_value, "random_seed")
         )
         try:
             metadata = NarrativeArtifactMetadata(
@@ -347,9 +243,13 @@ class MarkdownNarrativeStore:
                     raw_metadata["source_sign_ids"], "source_sign_ids"
                 ),
                 strategy=cls._string(raw_metadata["strategy"], "strategy"),
+                language=cls._string(raw_metadata["language"], "language"),
+                reading_minutes=cls._integer(raw_metadata["reading_minutes"], "reading_minutes"),
+                similarity_mode=cls._string(raw_metadata["similarity_mode"], "similarity_mode"),
                 similarity_threshold=cls._number(
                     raw_metadata["similarity_threshold"], "similarity_threshold"
                 ),
+                semantic_weight=cls._number(raw_metadata["semantic_weight"], "semantic_weight"),
                 random_seed=random_seed,
                 provider=cls._string(raw_metadata["provider"], "provider"),
                 model=cls._string(raw_metadata["model"], "model"),
@@ -358,9 +258,8 @@ class MarkdownNarrativeStore:
                 ),
                 system_prompt=cls._string(raw_metadata["system_prompt"], "system_prompt"),
                 user_prompt=cls._string(raw_metadata["user_prompt"], "user_prompt"),
-                output_version=cls._integer(
-                    raw_metadata["output_version"], "output_version"
-                ),
+                web_citations=cls._citations(raw_metadata["web_citations"]),
+                output_version=cls._integer(raw_metadata["output_version"], "output_version"),
             )
         except ValueError as error:
             raise NarrativeArtifactFormatError(str(error)) from error
@@ -382,7 +281,10 @@ class MarkdownNarrativeStore:
 
     @staticmethod
     def _string_dict(value: object, label: str) -> dict[str, object]:
-        if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        if not isinstance(value, dict):
+            raise NarrativeArtifactFormatError(f"{label} must be a JSON object")
+        raw = cast(dict[object, object], value)
+        if not all(isinstance(key, str) for key in raw):
             raise NarrativeArtifactFormatError(f"{label} must be a JSON object")
         return cast(dict[str, object], value)
 
@@ -394,7 +296,10 @@ class MarkdownNarrativeStore:
 
     @staticmethod
     def _string_tuple(value: object, label: str) -> tuple[str, ...]:
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        if not isinstance(value, list):
+            raise NarrativeArtifactFormatError(f"{label} must be a string list")
+        raw = cast(list[object], value)
+        if not all(isinstance(item, str) for item in raw):
             raise NarrativeArtifactFormatError(f"{label} must be a string list")
         return tuple(cast(list[str], value))
 
@@ -409,3 +314,23 @@ class MarkdownNarrativeStore:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise NarrativeArtifactFormatError(f"{label} must be a number")
         return float(value)
+
+    @classmethod
+    def _citations(cls, value: object) -> tuple[WebCitation, ...]:
+        if not isinstance(value, list):
+            raise NarrativeArtifactFormatError("web_citations must be a list")
+        citations: list[WebCitation] = []
+        for entry in cast(list[object], value):
+            payload = cls._string_dict(entry, "web citation")
+            if set(payload) != {"title", "url"}:
+                raise NarrativeArtifactFormatError("Web citation fields are invalid")
+            try:
+                citations.append(
+                    WebCitation(
+                        title=cls._string(payload["title"], "citation title"),
+                        url=cls._string(payload["url"], "citation URL"),
+                    )
+                )
+            except ValueError as error:
+                raise NarrativeArtifactFormatError(str(error)) from error
+        return tuple(citations)

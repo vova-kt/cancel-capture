@@ -34,9 +34,7 @@ class NarrativeSelectionService:
     def __init__(self, catalog: CatalogRepository) -> None:
         self._catalog = catalog
 
-    def list_anchors(
-        self, statuses: frozenset[ReviewStatus]
-    ) -> tuple[SignEmbeddingDocument, ...]:
+    def list_anchors(self, statuses: frozenset[ReviewStatus]) -> tuple[SignEmbeddingDocument, ...]:
         return tuple(
             document
             for document in self._catalog.list_sign_embedding_documents()
@@ -112,9 +110,7 @@ class NarrativeSelectionService:
         mode: SimilarityMode,
         semantic_weight: float,
     ) -> float | None:
-        semantic = cls._compatible_cosine(
-            anchor.semantic_embedding, candidate.semantic_embedding
-        )
+        semantic = cls._compatible_cosine(anchor.semantic_embedding, candidate.semantic_embedding)
         visual: float | None = None
         if anchor.visual_embedding is not None and candidate.visual_embedding is not None:
             visual = cls._compatible_cosine(anchor.visual_embedding, candidate.visual_embedding)

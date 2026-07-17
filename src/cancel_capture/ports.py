@@ -22,6 +22,14 @@ from cancel_capture.models import (
     StoredAsset,
     TelegramMessageRef,
 )
+from cancel_capture.narrative_models import (
+    ClusterTheme,
+    NarrativeArtifact,
+    NarrativeDraft,
+    NarrativeGenerationRequest,
+    NewsBrief,
+    StoredNarrativeArtifact,
+)
 
 
 class VisionProvider(Protocol):
@@ -53,6 +61,32 @@ class VisualEmbeddingProvider(Protocol):
     def dimensions(self) -> int: ...
 
     def embed(self, images: tuple[PreparedImage, ...]) -> tuple[Embedding, ...]: ...
+
+
+class CurrentNewsProvider(Protocol):
+    @property
+    def identity(self) -> ProviderIdentity: ...
+
+    async def research(self, query: str, *, current_date: str) -> NewsBrief: ...
+
+
+class NarrativeProvider(Protocol):
+    @property
+    def identity(self) -> ProviderIdentity: ...
+
+    async def generate(self, request: NarrativeGenerationRequest) -> NarrativeDraft: ...
+
+
+class ClusterThemeProvider(Protocol):
+    async def summarize(self, system_prompt: str, user_prompt: str) -> ClusterTheme: ...
+
+
+class NarrativeStore(Protocol):
+    def save(self, artifact: NarrativeArtifact) -> StoredNarrativeArtifact: ...
+
+    def read(self, relative_path: str) -> StoredNarrativeArtifact: ...
+
+    def list_artifacts(self) -> tuple[StoredNarrativeArtifact, ...]: ...
 
 
 class AssetStore(Protocol):
